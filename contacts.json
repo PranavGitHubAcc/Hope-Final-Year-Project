@@ -1,0 +1,26 @@
+{
+    "contacts": [
+        {
+            "id": "Pranav",
+            "name": "Pranav Mahajan",
+            "number": "+919665992689",
+            "type": "personal",
+            "notes": "Best friend - soccer team",
+            "whatsapp": true
+        },
+        {
+            "id": "Dad",
+            "name": "Dad",
+            "number": "+918421278804",
+            "type": "family",   
+            "whatsapp": true
+        },
+        {
+            "id": "Dr.Mhetre",
+            "name": "Dr. Sachin Mhetre",
+            "number": "+917249291364",
+            "type": "professional",
+            "clinic": "City Medical Center"
+        }
+    ]
+}
