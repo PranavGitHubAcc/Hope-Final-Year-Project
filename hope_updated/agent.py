@@ -31,5 +31,6 @@ root_agent = Agent(
     - If the user asks you to message someone, read a text, or perform any action that requires contacting, delegate that task to the 'contacting_agent' tool.
     - The tool will respond with the action taken or with the text that you will have to read out to the user (e.g., message sent, text read).""",
 
-    tools=[AgentTool(context_agent), AgentTool(contacting_agent)]
+    tools=[AgentTool(context_agent), AgentTool(contacting_agent)],
+    output_key="final_response",  # Specify the output key for the final response
 )
