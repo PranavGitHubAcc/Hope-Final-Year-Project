@@ -10,7 +10,7 @@ MODEL_GROQ = "groq/Gemma2-9b-It"
 API_KEY = os.getenv("GROQ_API_KEY")
 model = LiteLlm(model=MODEL_GROQ, api_key=API_KEY)
 
-with open("/Users/Pranav/Coding/Hope-Final-Year-Project/contacts.json", "r") as file:
+with open("contacts.json", "r") as file:
     data = json.load(file)
 
 contacting_agent = Agent(
