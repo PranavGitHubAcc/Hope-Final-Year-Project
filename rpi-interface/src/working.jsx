@@ -1,39 +1,5 @@
 import { useState, useRef } from 'react';
 
-// Azure Speech SDK (you'll need to install: npm install microsoft-cognitiveservices-speech-sdk)
-import * as speechsdk from 'microsoft-cognitiveservices-speech-sdk';
-
-// Token utility function using fetch instead of axios
-async function getTokenOrRefresh() {
-  // Simple in-memory token storage (replace with proper cookie implementation if needed)
-  const tokenKey = 'speech-token';
-  const cachedToken = sessionStorage.getItem(tokenKey);
-  
-  if (cachedToken) {
-    const [region, token] = cachedToken.split(':');
-    console.log('Token fetched from cache: ' + token);
-    return { authToken: token, region: region };
-  }
-
-  try {
-    const res = await fetch('/api/get-speech-token');
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    const data = await res.json();
-    const token = data.token;
-    const region = data.region;
-    
-    // Cache token for 9 minutes (540 seconds)
-    sessionStorage.setItem(tokenKey, region + ':' + token);
-    console.log('Token fetched from back-end: ' + token);
-    return { authToken: token, region: region };
-  } catch (err) {
-    console.error('Error fetching token:', err);
-    return { authToken: null, error: err.message };
-  }
-}
-
 function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
@@ -43,8 +9,7 @@ function App() {
   
   const mediaRecorder = useRef(null);
   const streamRef = useRef(null);
-  const synthesizerRef = useRef(null);
-  const audioPlayerRef = useRef(null);
+  const utteranceRef = useRef(null);
   
   // Configuration
   const API_URL = 'https://sg2c12sl-3000.inc1.devtunnels.ms/api/process_audio';
@@ -52,67 +17,43 @@ function App() {
   const SESSION_ID = 'session123';
 
   const speakText = async (text) => {
-    if (!text || isSpeaking) return;
+    if (!text || isSpeaking || !('speechSynthesis' in window)) return;
     
     try {
       setIsSpeaking(true);
       
       // Stop any ongoing speech
-      if (synthesizerRef.current) {
-        synthesizerRef.current.close();
-        synthesizerRef.current = null;
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utteranceRef.current = utterance;
+      
+      // Configure voice (try to get a good English voice)
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(voice => 
+        voice.lang.startsWith('en') && voice.name.includes('Google')
+      ) || voices.find(voice => voice.lang.startsWith('en'));
+      
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
       }
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      }
-
-      const SPEECH_KEY = 'FnZ2OxW0baDFFY4ioEaQwU6s59jMq9jXD0tl7hjae7RlcwKtlLVuJQQJ99BHACYeBjFXJ3w3AAAAACOG2zA1'; // Replace with your actual key
-      const SPEECH_REGION = 'eastus'; // Replace with your region (e.g., 'eastus')
       
-      // Configure Azure Speech with subscription key
-      const speechConfig = speechsdk.SpeechConfig.fromSubscription(
-        SPEECH_KEY, 
-        SPEECH_REGION
-      );
+      utterance.rate = 0.9;
+      utterance.pitch = 1;
+      utterance.volume = 1;
       
-      // Set voice (you can customize this)
-      speechConfig.speechSynthesisVoiceName = "en-US-AvaNeural";
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        utteranceRef.current = null;
+      };
       
-      // Create audio destination
-      const audioPlayer = new speechsdk.SpeakerAudioDestination();
-      audioPlayerRef.current = audioPlayer;
-      const audioConfig = speechsdk.AudioConfig.fromSpeakerOutput(audioPlayer);
+      utterance.onerror = (error) => {
+        console.error('TTS Error:', error);
+        setIsSpeaking(false);
+        utteranceRef.current = null;
+      };
       
-      // Create synthesizer
-      const synthesizer = new speechsdk.SpeechSynthesizer(speechConfig, audioConfig);
-      synthesizerRef.current = synthesizer;
-      
-      console.log('Starting Azure TTS for:', text);
-      
-      synthesizer.speakTextAsync(
-        text,
-        (result) => {
-          if (result.reason === speechsdk.ResultReason.SynthesizingAudioCompleted) {
-            console.log('Azure TTS completed successfully');
-          } else if (result.reason === speechsdk.ResultReason.Canceled) {
-            console.error('Azure TTS cancelled:', result.errorDetails);
-          }
-          
-          // Cleanup
-          synthesizer.close();
-          synthesizerRef.current = null;
-          audioPlayerRef.current = null;
-          setIsSpeaking(false);
-        },
-        (error) => {
-          console.error('Azure TTS error:', error);
-          synthesizer.close();
-          synthesizerRef.current = null;
-          audioPlayerRef.current = null;
-          setIsSpeaking(false);
-        }
-      );
+      window.speechSynthesis.speak(utterance);
       
     } catch (error) {
       console.error('TTS Error:', error);
@@ -121,15 +62,11 @@ function App() {
   };
 
   const stopSpeaking = () => {
-    if (synthesizerRef.current) {
-      synthesizerRef.current.close();
-      synthesizerRef.current = null;
-    }
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
     }
     setIsSpeaking(false);
+    utteranceRef.current = null;
   };
 
   const startRecording = async () => {
@@ -196,7 +133,7 @@ function App() {
       const responseText = `Transcription: ${data.transcription}\n\nResponse: ${data.response}`;
       setApiResponse(responseText);
       
-      // Auto-speak response using Azure TTS
+      // Auto-speak response
       if (data.response) {
         const cleanText = data.response.replace(/[^\w\s\.\,\?\!\-\'"]/g, '').trim();
         setTimeout(() => speakText(cleanText), 500);
@@ -216,7 +153,7 @@ function App() {
         
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-800">Voice Assistant</h1>
-          <p className="text-gray-600 text-sm mt-1">Record • Process • Speak (Azure TTS)</p>
+          <p className="text-gray-600 text-sm mt-1">Record • Process • Speak</p>
         </div>
 
         <div className="flex justify-center space-x-4">
@@ -281,7 +218,7 @@ function App() {
                   <div className="w-2 h-3 bg-blue-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
                   <div className="w-2 h-5 bg-blue-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
                 </div>
-                <span className="text-sm">Speaking with Azure TTS...</span>
+                <span className="text-sm">Speaking...</span>
               </div>
             )}
             
@@ -299,7 +236,7 @@ function App() {
                     }}
                     className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded transition-colors"
                   >
-                    🔊 Replay (Azure TTS)
+                    🔊 Replay
                   </button>
                 )}
               </div>
@@ -308,7 +245,9 @@ function App() {
         )}
 
         <div className="text-center text-xs text-gray-500">
-          <p className="text-green-600 mb-2">✅ Using Azure Speech Service for TTS</p>
+          {!('speechSynthesis' in window) && (
+            <p className="text-yellow-600 mb-2">⚠️ TTS not supported in this browser</p>
+          )}
           <p>Tap microphone to start recording</p>
         </div>
       </div>
