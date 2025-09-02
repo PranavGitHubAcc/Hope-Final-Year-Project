@@ -1,15 +1,15 @@
 from google.adk.agents import Agent
 import os
 from google.adk.models.lite_llm import LiteLlm  
+from pypdf import PdfReader
 
 
 MODEL_GROQ = "groq/Gemma2-9b-It"
 API_KEY = os.getenv("GROQ_API_KEY")
 model = LiteLlm(model=MODEL_GROQ, api_key=API_KEY)
 
-file_path = r"D:\Projects\Hope-Final-Year-Project\Patient Name_ John Doe.pdf"
+file_path = r"/Users/Pranav/Coding/Hope-Final-Year-Project/Patient Name_ John Doe.pdf"
 
-from pypdf import PdfReader
 
 document_content = ""
 try:
