@@ -94,7 +94,7 @@ function App() {
         text,
         (result) => {
           if (result.reason === speechsdk.ResultReason.SynthesizingAudioCompleted) {
-            console.log('Azure TTS completed successfully');
+            console.log('Azure TTS completed successfully!');
           } else if (result.reason === speechsdk.ResultReason.Canceled) {
             console.error('Azure TTS cancelled:', result.errorDetails);
           }
