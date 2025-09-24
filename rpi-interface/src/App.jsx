@@ -47,7 +47,7 @@ function App() {
   const audioPlayerRef = useRef(null);
   
   // Configuration
-  const API_URL = 'https://sg2c12sl-3000.inc1.devtunnels.ms/api/process_audio';
+  const API_URL = 'http://localhost:3000/api/process_audio';
   const USER_ID = 'user1';
   const SESSION_ID = 'session123';
 
@@ -94,7 +94,7 @@ function App() {
         text,
         (result) => {
           if (result.reason === speechsdk.ResultReason.SynthesizingAudioCompleted) {
-            console.log('Azure TTS completed successfully');
+            console.log('Azure TTS completed successfully!');
           } else if (result.reason === speechsdk.ResultReason.Canceled) {
             console.error('Azure TTS cancelled:', result.errorDetails);
           }
@@ -175,7 +175,6 @@ function App() {
 
   const sendAudioToApi = async (audioBlob) => {
     setIsProcessing(true);
-    setApiResponse('Processing...');
     
     try {
       const formData = new FormData();
@@ -210,108 +209,134 @@ function App() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-6 space-y-6">
+  // Enhanced Eye Animation Component
+  const EyeAnimation = () => {
+    const getEyeState = () => {
+      if (isRecording) {
+        return {
+          leftAnimation: 'listening-left 3s ease-in-out infinite',
+          rightAnimation: 'listening-right 3s ease-in-out infinite',
+          brightness: '1.2'
+        };
+      }
+      if (isSpeaking) {
+        return {
+          leftAnimation: 'speaking 1.2s ease-in-out infinite',
+          rightAnimation: 'speaking 1.2s ease-in-out infinite',
+          brightness: '1.3'
+        };
+      }
+      if (isProcessing) {
+        return {
+          leftAnimation: 'thinking 2.5s ease-in-out infinite',
+          rightAnimation: 'thinking 2.5s ease-in-out infinite',
+          brightness: '0.9'
+        };
+      }
+      // Idle state - curious animation
+      return {
+        leftAnimation: 'curious-left 8s ease-in-out infinite',
+        rightAnimation: 'curious-right 8s ease-in-out infinite',
+        brightness: '1'
+      };
+    };
+
+    const eyeState = getEyeState();
+
+    return (
+      <>
+        <style jsx>{`
+          .left-eye {
+            animation: ${eyeState.leftAnimation};
+          }
+          
+          .right-eye {
+            animation: ${eyeState.rightAnimation};
+          }
+          
+          /* Listening animations */
+          @keyframes listening-left {
+            0%, 100% { transform: translateX(0px) scale(1); }
+            50% { transform: translateX(-8px) scale(1.05); }
+          }
+          
+          @keyframes listening-right {
+            0%, 100% { transform: translateX(0px) scale(1); }
+            50% { transform: translateX(8px) scale(1.05); }
+          }
+          
+          /* Speaking animations */
+          @keyframes speaking {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+          }
+          
+          /* Thinking animations */
+          @keyframes thinking {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+          }
+          
+          /* Curious idle animations */
+          @keyframes curious-left {
+            0% { transform: scale(1) translateY(0px); }
+            15% { transform: scale(0.8) translateY(-3px); }
+            30% { transform: scale(1) translateY(0px); }
+            45% { transform: scale(1) translateX(-5px); }
+            60% { transform: scale(1.1) translateX(0px) translateY(-2px); }
+            75% { transform: scale(1) translateX(3px); }
+            85% { transform: scale(0.9) translateX(0px) translateY(1px); }
+            100% { transform: scale(1) translateY(0px); }
+          }
+          
+          @keyframes curious-right {
+            0% { transform: scale(1) translateY(0px); }
+            10% { transform: scale(1) translateY(0px); }
+            25% { transform: scale(1.2) translateY(-4px); }
+            40% { transform: scale(1) translateY(0px); }
+            55% { transform: scale(0.7) translateX(4px); }
+            70% { transform: scale(1) translateX(0px) translateY(-1px); }
+            80% { transform: scale(1.05) translateX(-2px); }
+            90% { transform: scale(1) translateX(0px) translateY(1px); }
+            100% { transform: scale(1) translateY(0px); }
+          }
+        `}</style>
         
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800">Voice Assistant</h1>
-          <p className="text-gray-600 text-sm mt-1">Record • Process • Speak (Azure TTS)</p>
+        <div className="flex justify-center items-center space-x-8 py-8">
+          {/* Left Eye - Click to record */}
+          <div
+            onClick={!isRecording ? startRecording : stopRecording}
+            className="left-eye cursor-pointer transform transition-all duration-300 hover:scale-105"
+            style={{
+              width: '80px',
+              height: '80px',
+              backgroundColor: '#00ffff',
+              borderRadius: '16px',
+              filter: `brightness(${eyeState.brightness}) drop-shadow(0 0 12px rgba(0, 255, 255, 0.5))`,
+              transformOrigin: 'center'
+            }}
+          />
+          
+          {/* Right Eye - Decorative */}
+          <div
+            className="right-eye"
+            style={{
+              width: '80px',
+              height: '80px',
+              backgroundColor: '#00ffff',
+              borderRadius: '16px',
+              filter: `brightness(${eyeState.brightness}) drop-shadow(0 0 12px rgba(0, 255, 255, 0.5))`,
+              transformOrigin: 'center'
+            }}
+          />
         </div>
+      </>
+    );
+  };
 
-        <div className="flex justify-center space-x-4">
-          {!isRecording ? (
-            <button
-              onClick={startRecording}
-              disabled={isProcessing || isSpeaking}
-              className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 disabled:bg-gray-400 text-white shadow-lg hover:scale-105 transition-all focus:outline-none focus:ring-2 focus:ring-red-300"
-            >
-              <svg className="w-8 h-8 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-              </svg>
-            </button>
-          ) : (
-            <div className="flex flex-col items-center space-y-3">
-              <button
-                onClick={stopRecording}
-                className="relative w-16 h-16 rounded-full bg-red-600 text-white shadow-lg hover:scale-105 transition-all focus:outline-none"
-              >
-                <div className="absolute inset-0 bg-red-400 rounded-full animate-ping opacity-75"></div>
-                <svg className="relative w-8 h-8 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
-                </svg>
-              </button>
-              <span className="text-sm text-red-600 font-medium animate-pulse">Recording...</span>
-            </div>
-          )}
-
-          {isSpeaking && (
-            <button
-              onClick={stopSpeaking}
-              className="w-16 h-16 rounded-full bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:scale-105 transition-all focus:outline-none"
-            >
-              <svg className="w-8 h-8 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM15.657 6.343a1 1 0 011.414 0A9.972 9.972 0 0119 12a9.972 9.972 0 01-1.929 5.657 1 1 0 11-1.414-1.414A7.971 7.971 0 0017 12c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 12a5.984 5.984 0 01-.757 2.828 1 1 0 01-1.415-1.414A3.987 3.987 0 0013 12a3.988 3.988 0 00-.172-1.414 1 1 0 010-1.415z" clipRule="evenodd" />
-                <path d="M13 12a1 1 0 11-2 0 1 1 0 012 0z" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        {audioUrl && (
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium text-gray-700">Recording</h3>
-            <audio controls src={audioUrl} className="w-full" />
-          </div>
-        )}
-
-        {(isProcessing || isSpeaking || apiResponse) && (
-          <div className="bg-gray-50 p-4 rounded-lg">
-            {isProcessing && (
-              <div className="flex items-center space-x-2 text-blue-600">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                <span className="text-sm">Processing...</span>
-              </div>
-            )}
-            
-            {isSpeaking && (
-              <div className="flex items-center space-x-2 text-blue-600 mb-2">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-4 bg-blue-500 rounded animate-pulse"></div>
-                  <div className="w-2 h-3 bg-blue-500 rounded animate-pulse" style={{animationDelay: '0.1s'}}></div>
-                  <div className="w-2 h-5 bg-blue-500 rounded animate-pulse" style={{animationDelay: '0.2s'}}></div>
-                </div>
-                <span className="text-sm">Speaking with Azure TTS...</span>
-              </div>
-            )}
-            
-            {apiResponse && (
-              <div className="space-y-2">
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap">{apiResponse}</pre>
-                {apiResponse.includes('Response:') && !isSpeaking && (
-                  <button
-                    onClick={() => {
-                      const responseText = apiResponse.split('Response: ')[1];
-                      if (responseText) {
-                        const cleanText = responseText.replace(/[^\w\s\.\,\?\!\-\'"]/g, '').trim();
-                        speakText(cleanText);
-                      }
-                    }}
-                    className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white text-xs rounded transition-colors"
-                  >
-                    🔊 Replay (Azure TTS)
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="text-center text-xs text-gray-500">
-          <p className="text-green-600 mb-2">✅ Using Azure Speech Service for TTS</p>
-          <p>Tap microphone to start recording</p>
-        </div>
-      </div>
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center">
+      <EyeAnimation />
     </div>
   );
 }
