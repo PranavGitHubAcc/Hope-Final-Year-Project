@@ -111,7 +111,10 @@ async def main():
             # Format memories into a readable string for the LLM
             # You can customize this formatting
             formatted_memories = "\n".join([f"- {m.content.parts[0].text}" for m in memories.memories if m.content and m.content.parts])
-            return f"Retrieved relevant past memories:\n{formatted_memories}"
+            if formatted_memories == "":
+                return "No relevant past memories found."
+            print("Formatted Memories:\n", formatted_memories)
+            return f"The user in previous conversations had mentioned:\n{formatted_memories}"
         return "No relevant past memories found."
 
 
