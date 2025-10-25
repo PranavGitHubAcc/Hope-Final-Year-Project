@@ -20,6 +20,56 @@ CORS(app)  # Enable CORS for all routes
 
 # Configuration
 ADK_API_URL = os.getenv("ADK_API_URL", "http://localhost:8000/run")
+ADK_BASE_URL = os.getenv("ADK_BASE_URL", "http://localhost:8000")
+
+# In-memory session tracking
+active_sessions = set()
+
+def create_session(user_id: str, session_id: str, app_name: str = "hope_adk") -> dict:
+    """Create a new session in the ADK service."""
+    try:
+        url = f"{ADK_BASE_URL}/apps/{app_name}/users/{user_id}/sessions/{session_id}"
+        logger.info(f"Creating session at: {url}")
+        
+        response = requests.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            timeout=10
+        )
+        
+        logger.info(f"Session Creation Response Status: {response.status_code}")
+        
+        if response.status_code in [200, 201]:
+            session_data = response.json()
+            logger.info(f"Session created successfully: {session_data}")
+            # Track this session
+            active_sessions.add(f"{user_id}:{session_id}")
+            return session_data
+        else:
+            logger.error(f"Session creation error: {response.status_code} - {response.text}")
+            raise Exception(f"Failed to create session: {response.status_code}")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Session Creation Request Error: {str(e)}")
+        raise Exception(f"Cannot connect to ADK service for session creation: {str(e)}")
+
+def ensure_session_exists(user_id: str, session_id: str, app_name: str = "hope_adk") -> dict:
+    """Ensure a session exists, create if it doesn't."""
+    session_key = f"{user_id}:{session_id}"
+    
+    # Check if we've already created this session in this runtime
+    if session_key in active_sessions:
+        logger.info(f"Session {session_id} already exists for user {user_id}")
+        return {"status": "existing"}
+    
+    # Try to create the session
+    try:
+        return create_session(user_id, session_id, app_name)
+    except Exception as e:
+        # If session already exists on the server, that's okay
+        logger.warning(f"Session may already exist: {str(e)}")
+        active_sessions.add(session_key)
+        return {"status": "existing_or_error", "message": str(e)}
 
 def ensure_wav_format(audio_data: bytes, content_type: str = None) -> bytes:
     """Ensure audio data is in WAV format."""
@@ -88,7 +138,7 @@ def send_to_adk(user_id: str, session_id: str, text: str) -> dict:
     """Send the transcribed text to the ADK service."""
     try:
         payload = {
-            "app_name": "hope_updated",
+            "app_name": "hope_adk",
             "user_id": user_id,
             "session_id": session_id,
             "new_message": {
@@ -121,6 +171,36 @@ def send_to_adk(user_id: str, session_id: str, text: str) -> dict:
         logger.error(f"ADK Request Error: {str(e)}")
         raise Exception(f"Cannot connect to ADK service: {str(e)}")
 
+@app.route('/api/create_session', methods=['POST'])
+def create_session_endpoint():
+    """Create a new session."""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+        
+        user_id = data.get('user_id')
+        session_id = data.get('session_id')
+        app_name = data.get('app_name', 'hope_adk')
+        
+        if not user_id or not session_id:
+            return jsonify({"error": "Missing user_id or session_id"}), 400
+        
+        logger.info(f"Creating session - user_id: {user_id}, session_id: {session_id}")
+        
+        session_data = create_session(user_id, session_id, app_name)
+        
+        return jsonify({
+            "status": "success",
+            "message": "Session created successfully",
+            "session": session_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating session: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/process_audio', methods=['POST'])
 def process_audio():
     """Process an audio file: convert speech to text and send to ADK service."""
@@ -138,6 +218,9 @@ def process_audio():
         
         logger.info(f"Received audio processing request - user_id: {user_id}, session_id: {session_id}")
         logger.info(f"File info - filename: {file.filename}, content_type: {file.content_type}")
+        
+        # Ensure session exists before processing
+        ensure_session_exists(user_id, session_id)
         
         # Validate file
         if not file.content_type or not file.content_type.startswith('audio/'):
@@ -194,14 +277,30 @@ def process_audio():
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
-    return jsonify({"status": "ok", "message": "Audio processing service is running"})
+    return jsonify({
+        "status": "ok", 
+        "message": "Audio processing service is running",
+        "active_sessions": len(active_sessions)
+    })
 
 @app.route('/', methods=['GET'])
 def root():
     """Root endpoint."""
-    return jsonify({"message": "Audio Processing Middleware API", "version": "1.0.0"})
+    return jsonify({
+        "message": "Audio Processing Middleware API", 
+        "version": "1.0.0",
+        "endpoints": {
+            "create_session": "/api/create_session (POST)",
+            "process_audio": "/api/process_audio (POST)",
+            "health": "/health (GET)"
+        }
+    })
 
 if __name__ == "__main__":
+    logger.info("Starting Audio Processing Middleware...")
+    logger.info(f"ADK Base URL: {ADK_BASE_URL}")
+    logger.info(f"ADK API URL: {ADK_API_URL}")
+    
     app.run(
         host="0.0.0.0",
         port=3000,

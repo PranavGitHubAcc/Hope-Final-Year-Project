@@ -40,7 +40,7 @@ async def main():
 
     APP_NAME = "Hope"
     USER_ID = "hope"
-    SESSION_ID = str(uuid.uuid4())
+    SESSION_ID = "session123"
 
 
     stateful_session = await session_service_stateful.create_session(
