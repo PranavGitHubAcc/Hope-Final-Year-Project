@@ -2,12 +2,15 @@ import asyncio
 import uuid
 import os
 import json
+import tempfile
 from dotenv import load_dotenv
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 
@@ -20,8 +23,13 @@ from google.adk.memory import VertexAiMemoryBankService
 from google.adk.sessions import VertexAiSessionService
 from google.adk.tools.agent_tool import AgentTool
 
+# Import speech recognition
+import speech_recognition as sr
+from pydub import AudioSegment
+
 from hope_finetuned import root_agent
 from hope_finetuned.sub_agents.contacting_agent import contacting_agent
+
 
 # Project configuration
 load_dotenv()
@@ -39,7 +47,7 @@ os.environ["GOOGLE_CLOUD_LOCATION"] = LOCATION
 
 # === PERSISTENT CONFIGURATION ===
 PERSISTENCE_FILE = "agent_state.json"
-APP_NAME = "hope_agent_api"  # ← FIXED app name for memory persistence
+APP_NAME = "hope_agent_api"
 
 # Global variables
 runner = None
@@ -81,11 +89,49 @@ class ChatResponse(BaseModel):
     response: str
     session_id: str
     user_id: str
+    transcription: Optional[str] = None
+
+class AudioResponse(BaseModel):
+    transcription: str
+    response: str
+    session_id: str
+    user_id: str
 
 class SessionInfo(BaseModel):
     session_id: str
     user_id: str
     created_at: str
+
+def audio_to_text(audio_file_path: str) -> str:
+    """Convert audio file to text using speech recognition"""
+    try:
+        recognizer = sr.Recognizer()
+        
+        # Convert audio file to WAV format if needed
+        audio = AudioSegment.from_file(audio_file_path)
+        wav_path = audio_file_path.replace(os.path.splitext(audio_file_path)[1], ".wav")
+        audio.export(wav_path, format="wav")
+        
+        with sr.AudioFile(wav_path) as source:
+            # Adjust for ambient noise and record
+            recognizer.adjust_for_ambient_noise(source)
+            audio_data = recognizer.record(source)
+            
+            # Use Google Speech Recognition
+            text = recognizer.recognize_google(audio_data)
+            print(f"Transcribed text: {text}")
+            return text
+            
+    except sr.UnknownValueError:
+        raise HTTPException(status_code=400, detail="Could not understand audio")
+    except sr.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Speech recognition error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Audio processing error: {str(e)}")
+    finally:
+        # Clean up temporary files
+        if 'wav_path' in locals() and os.path.exists(wav_path):
+            os.remove(wav_path)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -144,8 +190,8 @@ async def lifespan(app: FastAPI):
         
         # Search across ALL users or specific user logic
         memories = await memory_bank_service.search_memory(
-            app_name=persistent_state.app_name,  # ← PERSISTENT app name!
-            user_id="default",  # You might want to make this dynamic
+            app_name=persistent_state.app_name,
+            user_id="default",
             query=query
         )
         
@@ -171,7 +217,7 @@ async def lifespan(app: FastAPI):
     # Create runner with PERSISTENT app_name
     runner = Runner(
         agent=root_agent,
-        app_name=persistent_state.app_name,  # ← Same name every time!
+        app_name=persistent_state.app_name,
         session_service=session_service,
         memory_service=memory_bank_service,
     )
@@ -179,16 +225,22 @@ async def lifespan(app: FastAPI):
     print("API initialization completed with persistent memory!")
     yield
     
-    # Shutdown - don't delete engine if we want to persist!
     print("Shutting down API...")
-    # Comment out engine deletion to preserve memory
-    # agent_engines.delete(resource_name=agent_engine.resource_name, force=True)
 
 app = FastAPI(
-    title="Hope Agent API with Persistent Memory",
-    description="REST API that remembers conversations across restarts",
-    version="2.0.0",
+    title="Hope Agent API with Audio Processing",
+    description="REST API that processes audio input and provides text responses",
+    version="2.1.0",
     lifespan=lifespan
+)
+
+# Enable CORS for all origins (adjust as needed for security)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 async def run_single_turn(query: str, session_id: str, user_id: str) -> str:
@@ -262,6 +314,62 @@ async def chat(chat_message: ChatMessage, background_tasks: BackgroundTasks):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+
+@app.post("/process_audio", response_model=AudioResponse)
+async def process_audio(
+    file: UploadFile = File(...),
+    user_id: str = Form("user_unknown"),
+    session_id: Optional[str] = Form(None)
+):
+    """Process audio file: convert to text and get agent response"""
+    global runner
+    
+    if not runner:
+        raise HTTPException(status_code=503, detail="Agent runner not initialized")
+    
+    # Validate file type
+    if not file.content_type.startswith('audio/'):
+        raise HTTPException(status_code=400, detail="File must be an audio file")
+    
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
+        temp_path = temp_file.name
+        content = await file.read()
+        temp_file.write(content)
+    
+    try:
+        # Convert audio to text
+        transcription = audio_to_text(temp_path)
+        
+        persistent_state = load_persistent_state()
+        
+        # Create new session or use existing one
+        if not session_id:
+            session_id = await create_new_session(user_id)
+        else:
+            if session_id not in persistent_state.sessions:
+                session_id = await create_new_session(user_id)
+        
+        # Get agent response
+        response_text = await run_single_turn(
+            query=transcription,
+            session_id=session_id,
+            user_id=user_id
+        )
+        
+        return AudioResponse(
+            transcription=transcription,
+            response=response_text,
+            session_id=session_id,
+            user_id=user_id
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 @app.get("/memory/search")
 async def search_memory(query: str, user_id: str = "default"):

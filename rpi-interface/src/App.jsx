@@ -1,38 +1,5 @@
 import { useState, useRef } from 'react';
-
-// Azure Speech SDK (you'll need to install: npm install microsoft-cognitiveservices-speech-sdk)
 import * as speechsdk from 'microsoft-cognitiveservices-speech-sdk';
-
-// Token utility function using fetch instead of axios
-async function getTokenOrRefresh() {
-  // Simple in-memory token storage (replace with proper cookie implementation if needed)
-  const tokenKey = 'speech-token';
-  const cachedToken = sessionStorage.getItem(tokenKey);
-  
-  if (cachedToken) {
-    const [region, token] = cachedToken.split(':');
-    console.log('Token fetched from cache: ' + token);
-    return { authToken: token, region: region };
-  }
-
-  try {
-    const res = await fetch('/api/get-speech-token');
-    if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`);
-    }
-    const data = await res.json();
-    const token = data.token;
-    const region = data.region;
-    
-    // Cache token for 9 minutes (540 seconds)
-    sessionStorage.setItem(tokenKey, region + ':' + token);
-    console.log('Token fetched from back-end: ' + token);
-    return { authToken: token, region: region };
-  } catch (err) {
-    console.error('Error fetching token:', err);
-    return { authToken: null, error: err.message };
-  }
-}
 
 function App() {
   const [isRecording, setIsRecording] = useState(false);
@@ -40,16 +7,17 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [apiResponse, setApiResponse] = useState('');
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [transcription, setTranscription] = useState('');
   
   const mediaRecorder = useRef(null);
   const streamRef = useRef(null);
   const synthesizerRef = useRef(null);
   const audioPlayerRef = useRef(null);
   
-  // Configuration
-  const API_URL = 'http://localhost:3000/api/process_audio';
+  // Configuration - Update API endpoint to match Python server
+  const API_URL = 'http://localhost:8000/process_audio'; // Updated to Python server
   const USER_ID = 'user1';
-  const SESSION_ID = 'session123';
+  const SESSION_ID = '4533361482989043712';
 
   const speakText = async (text) => {
     if (!text || isSpeaking) return;
@@ -67,24 +35,20 @@ function App() {
         audioPlayerRef.current = null;
       }
 
-      const SPEECH_KEY = 'FnZ2OxW0baDFFY4ioEaQwU6s59jMq9jXD0tl7hjae7RlcwKtlLVuJQQJ99BHACYeBjFXJ3w3AAAAACOG2zA1'; // Replace with your actual key
-      const SPEECH_REGION = 'eastus'; // Replace with your region (e.g., 'eastus')
+      const SPEECH_KEY = 'Dlh8qsFb9znouchcwXCMiWDkItfpkHHS3vdGK4TG0Kaxw4EeGVPWJQQJ99BJACgEuAYXJ3w3AAAYACOGI9OI';
+      const SPEECH_REGION = 'italynorth';
       
-      // Configure Azure Speech with subscription key
       const speechConfig = speechsdk.SpeechConfig.fromSubscription(
         SPEECH_KEY, 
         SPEECH_REGION
       );
       
-      // Set voice (you can customize this)
       speechConfig.speechSynthesisVoiceName = "en-US-AvaNeural";
       
-      // Create audio destination
       const audioPlayer = new speechsdk.SpeakerAudioDestination();
       audioPlayerRef.current = audioPlayer;
       const audioConfig = speechsdk.AudioConfig.fromSpeakerOutput(audioPlayer);
       
-      // Create synthesizer
       const synthesizer = new speechsdk.SpeechSynthesizer(speechConfig, audioConfig);
       synthesizerRef.current = synthesizer;
       
@@ -99,7 +63,6 @@ function App() {
             console.error('Azure TTS cancelled:', result.errorDetails);
           }
           
-          // Cleanup
           synthesizer.close();
           synthesizerRef.current = null;
           audioPlayerRef.current = null;
@@ -135,11 +98,18 @@ function App() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { echoCancellation: true, noiseSuppression: true } 
+        audio: { 
+          echoCancellation: true, 
+          noiseSuppression: true,
+          sampleRate: 16000 // Better for speech recognition
+        } 
       });
       
       streamRef.current = stream;
-      const recorder = new MediaRecorder(stream);
+      
+      // Use WAV format for better compatibility with speech recognition
+      const options = { mimeType: 'audio/webm;codecs=opus' };
+      const recorder = new MediaRecorder(stream, options);
       mediaRecorder.current = recorder;
       
       const chunks = [];
@@ -148,7 +118,7 @@ function App() {
       };
 
       recorder.onstop = async () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
         setAudioUrl(URL.createObjectURL(audioBlob));
         setIsRecording(false);
         
@@ -161,6 +131,7 @@ function App() {
 
       recorder.start();
       setIsRecording(true);
+      console.log('Recording started...');
     } catch (err) {
       console.error('Microphone error:', err);
       alert('Could not access microphone');
@@ -170,17 +141,22 @@ function App() {
   const stopRecording = () => {
     if (mediaRecorder.current?.state === 'recording') {
       mediaRecorder.current.stop();
+      console.log('Recording stopped');
     }
   };
 
   const sendAudioToApi = async (audioBlob) => {
     setIsProcessing(true);
+    setApiResponse('');
+    setTranscription('');
     
     try {
       const formData = new FormData();
-      formData.append('file', audioBlob, 'recording.wav');
+      formData.append('file', audioBlob, 'recording.webm');
       formData.append('user_id', USER_ID);
       formData.append('session_id', SESSION_ID);
+      
+      console.log('Sending audio to API...');
       
       const response = await fetch(API_URL, {
         method: 'POST',
@@ -188,12 +164,15 @@ function App() {
       });
       
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} - ${errorText}`);
       }
       
       const data = await response.json();
-      const responseText = `Transcription: ${data.transcription}\n\nResponse: ${data.response}`;
-      setApiResponse(responseText);
+      console.log('API Response:', data);
+      
+      setTranscription(data.transcription);
+      setApiResponse(data.response);
       
       // Auto-speak response using Azure TTS
       if (data.response) {
@@ -233,7 +212,6 @@ function App() {
           brightness: '0.9'
         };
       }
-      // Idle state - curious animation
       return {
         leftAnimation: 'curious-left 8s ease-in-out infinite',
         rightAnimation: 'curious-right 8s ease-in-out infinite',
@@ -254,7 +232,6 @@ function App() {
             animation: ${eyeState.rightAnimation};
           }
           
-          /* Listening animations */
           @keyframes listening-left {
             0%, 100% { transform: translateX(0px) scale(1); }
             50% { transform: translateX(-8px) scale(1.05); }
@@ -265,19 +242,16 @@ function App() {
             50% { transform: translateX(8px) scale(1.05); }
           }
           
-          /* Speaking animations */
           @keyframes speaking {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.1); }
           }
           
-          /* Thinking animations */
           @keyframes thinking {
             0%, 100% { opacity: 0.8; }
             50% { opacity: 1; }
           }
           
-          /* Curious idle animations */
           @keyframes curious-left {
             0% { transform: scale(1) translateY(0px); }
             15% { transform: scale(0.8) translateY(-3px); }
@@ -303,7 +277,6 @@ function App() {
         `}</style>
         
         <div className="flex justify-center items-center space-x-8 py-8">
-          {/* Left Eye - Click to record */}
           <div
             onClick={!isRecording ? startRecording : stopRecording}
             className="left-eye cursor-pointer transform transition-all duration-300 hover:scale-105"
@@ -317,7 +290,6 @@ function App() {
             }}
           />
           
-          {/* Right Eye - Decorative */}
           <div
             className="right-eye"
             style={{
@@ -335,8 +307,57 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
       <EyeAnimation />
+      
+      {/* Status Display */}
+      <div className="text-white text-center mb-4">
+        {isRecording && <p className="text-cyan-400">🎤 Recording... Click eye to stop</p>}
+        {isProcessing && <p className="text-yellow-400">⚡ Processing audio...</p>}
+        {isSpeaking && <p className="text-green-400">🔊 Speaking...</p>}
+      </div>
+      
+      {/* Response Display */}
+      {(transcription || apiResponse) && (
+        <div className="bg-gray-900 rounded-lg p-6 max-w-2xl w-full mt-4">
+          {transcription && (
+            <div className="mb-4">
+              <h3 className="text-cyan-400 font-bold mb-2">You said:</h3>
+              <p className="text-white">{transcription}</p>
+            </div>
+          )}
+          {apiResponse && (
+            <div>
+              <h3 className="text-green-400 font-bold mb-2">Hope AI:</h3>
+              <p className="text-white">{apiResponse}</p>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* Controls */}
+      <div className="mt-6 flex space-x-4">
+        <button
+          onClick={stopSpeaking}
+          disabled={!isSpeaking}
+          className={`px-4 py-2 rounded ${
+            isSpeaking 
+              ? 'bg-red-600 hover:bg-red-700 text-white' 
+              : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          Stop Speaking
+        </button>
+        
+        {audioUrl && (
+          <button
+            onClick={() => window.open(audioUrl, '_blank')}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+          >
+            Play Recording
+          </button>
+        )}
+      </div>
     </div>
   );
 }
