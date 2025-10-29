@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-python-multipart
-pydantic
-python-dotenv
-requests
-SpeechRecognition
-pydub
-numpy
