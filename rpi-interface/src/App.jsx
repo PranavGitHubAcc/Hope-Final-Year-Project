@@ -35,7 +35,7 @@ function App() {
         audioPlayerRef.current = null;
       }
 
-      const SPEECH_KEY = 'Dlh8qsFb9znouchcwXCMiWDkItfpkHHS3vdGK4TG0Kaxw4EeGVPWJQQJ99BJACgEuAYXJ3w3AAAYACOGI9OI';
+      const SPEECH_KEY = 'your-api-key-here';
       const SPEECH_REGION = 'italynorth';
       
       const speechConfig = speechsdk.SpeechConfig.fromSubscription(
